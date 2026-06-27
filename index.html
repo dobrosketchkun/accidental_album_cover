@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Accidental Album Cover Generator</title>
+<style>
+  :root{
+    --bg:#0e0f13; --panel:#181a21; --line:#262a35; --txt:#e9ebf0;
+    --muted:#9aa0ad; --accent:#e0455e; --accent2:#5b8cff;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:radial-gradient(1200px 800px at 70% -10%, #1c2030, var(--bg));
+    color:var(--txt); font:15px/1.5 system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:28px 16px 60px;
+  }
+  h1{font-size:24px; margin:0 0 4px; letter-spacing:.4px}
+  .sub{color:var(--muted); margin:0 0 22px; font-size:13px; text-align:center}
+  .wrap{display:flex; gap:26px; flex-wrap:wrap; justify-content:center; align-items:flex-start; width:100%; max-width:1000px}
+  .stage{flex:0 0 auto}
+  canvas{
+    width:min(86vw,512px); height:auto; border-radius:10px; background:#000;
+    box-shadow:0 20px 60px rgba(0,0,0,.55); display:block;
+  }
+  .panel{
+    flex:1 1 300px; min-width:280px; max-width:380px; background:var(--panel);
+    border:1px solid var(--line); border-radius:14px; padding:18px;
+  }
+  .row{display:flex; flex-direction:column; gap:6px; margin-bottom:14px}
+  label{font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px}
+  select,input[type=number]{
+    background:#0f1117; color:var(--txt); border:1px solid var(--line);
+    border-radius:8px; padding:9px 10px; font-size:14px;
+  }
+  .btns{display:flex; gap:10px; flex-wrap:wrap; margin-top:4px}
+  button{
+    flex:1 1 auto; cursor:pointer; border:none; border-radius:9px; padding:11px 14px;
+    font-size:14px; font-weight:600; color:#fff; background:var(--accent);
+    transition:transform .05s ease, filter .15s ease;
+  }
+  button.secondary{background:#2a2f3c}
+  button:hover{filter:brightness(1.1)}
+  button:active{transform:translateY(1px)}
+  button:disabled{opacity:.5; cursor:not-allowed}
+  .status{margin-top:14px; font-size:13px; color:var(--muted); min-height:18px}
+  .status.err{color:#ff6b6b}
+  .info{margin-top:16px; border-top:1px solid var(--line); padding-top:14px; font-size:13px}
+  .info b{color:#fff}
+  .info .k{color:var(--muted); display:inline-block; min-width:74px}
+  .info a{color:var(--accent2); text-decoration:none; word-break:break-word}
+  .info a:hover{text-decoration:underline}
+  .info .credit{margin-top:10px; font-size:11.5px; color:var(--muted); line-height:1.45}
+  .spin{display:inline-block; width:13px; height:13px; border:2px solid #555; border-top-color:#fff;
+    border-radius:50%; animation:sp .7s linear infinite; vertical-align:-2px; margin-right:7px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+  <h1>🎲 Accidental Album Cover</h1>
+  <p class="sub">Random Wikipedia band · random Wikiquote title · random Openverse photo. No keys, no server.</p>
+
+  <div class="wrap">
+    <div class="stage">
+      <canvas id="cv" width="1024" height="1024"></canvas>
+    </div>
+
+    <div class="panel">
+      <div class="row">
+        <label for="layout">Layout</label>
+        <select id="layout">
+          <option value="">Random</option>
+          <option value="classic">Classic</option>
+          <option value="plate">Center plate</option>
+          <option value="rail">Left rail</option>
+          <option value="marquee">Marquee</option>
+          <option value="stack">Top stack</option>
+          <option value="sticker">Sticker bar</option>
+          <option value="elegant">Elegant serif</option>
+          <option value="script">Script</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="source">Image source</label>
+        <select id="source">
+          <option value="openverse">Openverse (CC photos)</option>
+          <option value="picsum">Lorem Picsum</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="words">Title words (last N of a quote)</label>
+        <input id="words" type="number" min="3" max="7" value="4">
+      </div>
+
+      <div class="btns">
+        <button id="gen">Generate new</button>
+        <button id="redraw" class="secondary">Reroll layout</button>
+      </div>
+      <div class="btns" style="margin-top:10px">
+        <button id="dl" class="secondary" disabled>Download .jpg</button>
+      </div>
+
+      <div class="status" id="status"></div>
+
+      <div class="info" id="info" style="display:none">
+        <div><span class="k">Band</span><b id="iBand"></b></div>
+        <div><span class="k">Album</span><b id="iAlbum"></b></div>
+        <div><span class="k">Layout</span><span id="iLayout"></span></div>
+        <div class="credit" id="iCredit"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+"use strict";
+
+/* ----------------------------------------------------------------------
+   Fonts (Google Fonts via CSS Font Loading API)
+---------------------------------------------------------------------- */
+const CAPS   = ["Anton","Bebas Neue","Archivo Black","Staatliches","Fjalla One","Alfa Slab One","Bungee","Righteous"];
+const SERIF  = ["Abril Fatface","DM Serif Display","Yeseva One"];
+const SCRIPT = ["Lobster","Pacifico"];
+const ALL_FONTS = [...CAPS,...SERIF,...SCRIPT];
+const DISPLAY = [...CAPS,...SERIF];
+
+async function loadFonts(){
+  const href = "https://fonts.googleapis.com/css2?" +
+    ALL_FONTS.map(f => "family=" + encodeURIComponent(f).replace(/%20/g,"+")).join("&") +
+    "&display=swap";
+  const link = document.createElement("link");
+  link.rel = "stylesheet"; link.href = href;
+  document.head.appendChild(link);
+  // Force-load each family so canvas can use them.
+  await Promise.all(ALL_FONTS.map(f => document.fonts.load(`64px "${f}"`).catch(()=>{})));
+  await document.fonts.ready.catch(()=>{});
+}
+
+/* ----------------------------------------------------------------------
+   Tiny helpers
+---------------------------------------------------------------------- */
+const pick = a => a[Math.floor(Math.random()*a.length)];
+const rgb  = c => `rgb(${c[0]},${c[1]},${c[2]})`;
+const rgba = (c,a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+
+/* ----------------------------------------------------------------------
+   Data sources
+---------------------------------------------------------------------- */
+async function fetchBandName(){
+  const url = "https://en.wikipedia.org/w/api.php?format=json&origin=*"
+            + "&action=query&generator=random&grnnamespace=0&grnlimit=1";
+  const j = await (await fetch(url)).json();
+  const page = Object.values(j.query.pages)[0];
+  return (page && page.title) || "Unknown Band";
+}
+
+function parseQuotes(text){
+  const out = [];
+  for (let line of text.split("\n")){
+    line = line.trim();
+    if (!line) continue;
+    if (/^(see also|external links|references|notes|sources|bibliography|further reading)/i.test(line)) continue;
+    for (let p of line.split(/(?<=[.!?])\s+/)){
+      p = p.replace(/\[\d+\]/g,"").trim();
+      const words = p.split(/\s+/).filter(Boolean);
+      if (words.length < 5 || p.length > 300) continue;
+      const dash = p.split(/\s+[—–-]\s+/);
+      if (dash.length >= 2 && dash[0].split(/\s+/).length >= 5) p = dash[0].trim();
+      out.push(p);
+    }
+  }
+  return out;
+}
+
+function lastNWords(text, n){
+  const w = text.match(/[A-Za-z0-9][A-Za-z0-9'’_-]*/g);
+  if (!w || !w.length) return "Untitled";
+  return w.slice(-n).join(" ");
+}
+
+async function fetchAlbumTitle(nWords){
+  const url = "https://en.wikiquote.org/w/api.php?format=json&origin=*"
+            + "&action=query&generator=random&grnnamespace=0&grnlimit=1"
+            + "&prop=extracts&explaintext=1&exsectionformat=plain&exlimit=1";
+  for (let attempt=0; attempt<4; attempt++){
+    try{
+      const j = await (await fetch(url)).json();
+      const page = Object.values(j.query.pages)[0];
+      const cands = parseQuotes((page && page.extract) || "");
+      if (cands.length){
+        const q = pick(cands);
+        return { title: lastNWords(q, nWords), quote: q, page: page.title };
+      }
+    }catch(e){ /* retry */ }
+  }
+  return { title: "Untitled Accidental Record", quote: "", page: "" };
+}
+
+const PHOTO_WORDS = ["light","river","city","forest","ocean","street","mountain","sky",
+  "flower","night","desert","cloud","rain","road","window","portrait","animal","bridge",
+  "garden","summer","winter","abstract","texture","building","sunset","fog","wave","ruins",
+  "neon","field","shadow","smoke","glass","stone","harbor"];
+
+function loadImage(src){
+  return new Promise((res,rej)=>{
+    const im = new Image();
+    im.crossOrigin = "anonymous";
+    im.onload = ()=>res(im);
+    im.onerror = ()=>rej(new Error("image load failed"));
+    im.src = src;
+  });
+}
+
+async function fetchOpenverse(){
+  const q = pick(PHOTO_WORDS);
+  const pg = 1 + Math.floor(Math.random()*8);
+  const url = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(q)}`
+            + `&page=${pg}&page_size=20&mature=false`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("openverse " + r.status);
+  const j = await r.json();
+  if (!j.results || !j.results.length) throw new Error("no openverse results");
+  // try a few random results in case a thumbnail won't load
+  const pool = [...j.results].sort(()=>Math.random()-0.5).slice(0,6);
+  for (const res of pool){
+    try{
+      const img = await loadImage(res.thumbnail);  // CORS-safe proxy
+      return { img, attribution:{
+        title: res.title || "Untitled",
+        creator: res.creator || "Unknown",
+        license: `${(res.license||"").toUpperCase()} ${res.license_version||""}`.trim(),
+        link: res.foreign_landing_url || res.url,
+        source: "Openverse"
+      }};
+    }catch(e){ /* next */ }
+  }
+  throw new Error("no loadable openverse image");
+}
+
+async function fetchPicsum(){
+  const seed = Math.floor(Math.random()*1e6);
+  const img = await loadImage(`https://picsum.photos/seed/${seed}/1024/1024`);
+  return { img, attribution:{
+    title: "Lorem Picsum #" + seed, creator: "", license: "",
+    link: "https://picsum.photos", source: "Picsum"
+  }};
+}
+
+async function fetchPhoto(source){
+  if (source !== "picsum"){
+    try { return await fetchOpenverse(); }
+    catch(e){ console.warn("Openverse failed, falling back to Picsum:", e); }
+  }
+  return await fetchPicsum();
+}
+
+/* ----------------------------------------------------------------------
+   Palette + color logic
+---------------------------------------------------------------------- */
+function extractPalette(img, n=6){
+  const c = document.createElement("canvas"); c.width = 64; c.height = 64;
+  const cx = c.getContext("2d");
+  cx.drawImage(img, 0, 0, 64, 64);
+  const d = cx.getImageData(0,0,64,64).data;
+  const buckets = {};
+  for (let i=0;i<d.length;i+=4){
+    const r=d[i],g=d[i+1],b=d[i+2],a=d[i+3];
+    if (a < 200) continue;
+    const key = (r>>5)+","+(g>>5)+","+(b>>5);
+    const o = buckets[key] || (buckets[key]={r:0,g:0,b:0,n:0});
+    o.r+=r; o.g+=g; o.b+=b; o.n++;
+  }
+  const arr = Object.values(buckets)
+    .map(o=>({c:[o.r/o.n|0,o.g/o.n|0,o.b/o.n|0], n:o.n}))
+    .sort((x,y)=>y.n-x.n);
+  return arr.slice(0,n).map(o=>o.c);
+}
+function vividness(c){
+  const r=c[0]/255,g=c[1]/255,b=c[2]/255;
+  const mx=Math.max(r,g,b), mn=Math.min(r,g,b);
+  const sat = mx===0 ? 0 : (mx-mn)/mx;
+  return sat*mx;
+}
+function luminance(c){ return 0.2126*c[0]+0.7152*c[1]+0.0722*c[2]; }
+function contrastColor(c){ return luminance(c)>140 ? [15,15,18] : [245,245,245]; }
+function bestAccent(pal){
+  if (!pal.length) return [220,60,60];
+  let c = pal.reduce((a,b)=> vividness(b)>vividness(a)?b:a, pal[0]);
+  if (vividness(c) < 0.12) return [228,228,228];
+  if (luminance(c) < 70) c = c.map(v=>Math.min(255, Math.round(v*0.5+120)));
+  return c.map(v=>v|0);
+}
+
+/* ----------------------------------------------------------------------
+   Gradients / overlays
+---------------------------------------------------------------------- */
+function overlay(ctx,S,color,a){ ctx.fillStyle=`rgba(${color},${a})`; ctx.fillRect(0,0,S,S); }
+function gradV(ctx,S,y0,y1,a0,a1,color="0,0,0"){
+  const g=ctx.createLinearGradient(0,y0,0,y1);
+  g.addColorStop(0,`rgba(${color},${a0})`); g.addColorStop(1,`rgba(${color},${a1})`);
+  ctx.fillStyle=g; ctx.fillRect(0,y0,S,y1-y0);
+}
+function gradH(ctx,S,x0,x1,a0,a1,color="0,0,0"){
+  const g=ctx.createLinearGradient(x0,0,x1,0);
+  g.addColorStop(0,`rgba(${color},${a0})`); g.addColorStop(1,`rgba(${color},${a1})`);
+  ctx.fillStyle=g; ctx.fillRect(x0,0,x1-x0,S);
+}
+
+/* ----------------------------------------------------------------------
+   Text engine: measure / fit / draw (with letter-spacing + shadow)
+---------------------------------------------------------------------- */
+function measureLine(ctx, text, tracking){
+  if (!text) return 0;
+  let w = 0;
+  for (const ch of text) w += ctx.measureText(ch).width;
+  if (text.length > 1) w += tracking*(text.length-1);
+  return w;
+}
+function wrapText(ctx, text, maxW, tracking){
+  const words = text.split(/\s+/).filter(Boolean);
+  if (!words.length) return [""];
+  let lines=[], cur=words[0];
+  for (let i=1;i<words.length;i++){
+    const test = cur+" "+words[i];
+    if (measureLine(ctx,test,tracking) <= maxW) cur=test;
+    else { lines.push(cur); cur=words[i]; }
+  }
+  lines.push(cur);
+  return lines;
+}
+function fitText(ctx, text, family, maxW, maxLines, start, min, trackEm){
+  start = Math.max(start, min);
+  for (let size=Math.round(start); size>=min; size-=2){
+    ctx.font = `${size}px "${family}"`;
+    const tracking = trackEm*size;
+    const lines = wrapText(ctx, text, maxW, tracking);
+    if (lines.length <= maxLines && lines.every(l=>measureLine(ctx,l,tracking)<=maxW))
+      return { family, size, tracking, lines };
+  }
+  const size = Math.round(min);
+  ctx.font = `${size}px "${family}"`;
+  const tracking = trackEm*size;
+  return { family, size, tracking, lines: wrapText(ctx,text,maxW,tracking).slice(0,maxLines) };
+}
+function drawLine(ctx, x, y, text, tracking, fill, strokeW, strokeColor){
+  let cx = x;
+  for (const ch of text){
+    if (strokeW>0){ ctx.lineWidth=strokeW; ctx.strokeStyle=strokeColor; ctx.strokeText(ch,cx,y); }
+    ctx.fillStyle=fill; ctx.fillText(ch,cx,y);
+    cx += ctx.measureText(ch).width + tracking;
+  }
+}
+function drawBlock(ctx, ft, box, opts={}){
+  ctx.font = `${ft.size}px "${ft.family}"`;
+  ctx.textBaseline = "top";
+  ctx.textAlign = "left";
+  const [x0,y0,x1,y1] = box, boxW = x1-x0;
+  const lh = ft.size*(opts.lineSpacing||1.12);
+  const total = lh*ft.lines.length;
+  let y = opts.valign==="bottom" ? y1-total
+        : opts.valign==="center" ? y0+(y1-y0-total)/2
+        : y0;
+  for (const line of ft.lines){
+    const w = measureLine(ctx,line,ft.tracking);
+    const x = opts.align==="left" ? x0
+            : opts.align==="right" ? x1-w
+            : x0+(boxW-w)/2;
+    if (opts.shadow){
+      const off = Math.max(2, ft.size/22);
+      drawLine(ctx, x+off, y+off, line, ft.tracking, opts.shadow, 0, opts.shadow);
+    }
+    drawLine(ctx, x, y, line, ft.tracking,
+             opts.fill||"#fff", opts.strokeW||0, opts.strokeColor||"rgba(0,0,0,0.85)");
+    y += lh;
+  }
+  return y;
+}
+
+/* ----------------------------------------------------------------------
+   LAYOUTS  (ctx, band, album, palette, S)
+---------------------------------------------------------------------- */
+const SH = "rgba(0,0,0,0.55)";
+
+function layout_classic(ctx,band,album,pal,S){
+  gradV(ctx,S,0,S*0.34,0.67,0);
+  gradV(ctx,S,S*0.55,S,0,0.82);
+  const mw=S*0.88, sw=Math.max(1,S/450);
+  drawBlock(ctx, fitText(ctx,band.toUpperCase(),pick(CAPS),mw,2,S*0.085,S*0.04,0.06),
+    [S*0.06,S*0.04,S*0.94,S*0.30], {align:"center",valign:"top",strokeW:sw,strokeColor:SH,shadow:SH});
+  drawBlock(ctx, fitText(ctx,album.toUpperCase(),pick(DISPLAY),mw,3,S*0.06,S*0.03,0.04),
+    [S*0.06,S*0.62,S*0.94,S*0.96], {align:"center",valign:"bottom",strokeW:sw,strokeColor:SH,shadow:SH});
+}
+
+function layout_plate(ctx,band,album,pal,S){
+  const acc=bestAccent(pal);
+  overlay(ctx,S,"0,0,0",0.22);
+  const m=S*0.12, y0=S*0.32, y1=S*0.68;
+  ctx.beginPath(); ctx.roundRect(m,y0,S-2*m,y1-y0,S*0.025);
+  ctx.fillStyle="rgba(8,8,10,0.65)"; ctx.fill();
+  ctx.lineWidth=Math.max(2,S/320); ctx.strokeStyle=rgb(acc); ctx.stroke();
+  const mw=S*0.64;
+  drawBlock(ctx, fitText(ctx,band,pick(SERIF),mw,2,S*0.07,S*0.035,0),
+    [S*0.18,S*0.34,S*0.82,S*0.49], {align:"center",valign:"center"});
+  ctx.strokeStyle=rgb(acc); ctx.lineWidth=Math.max(1,S/350);
+  ctx.beginPath(); ctx.moveTo(S*0.36,S*0.50); ctx.lineTo(S*0.64,S*0.50); ctx.stroke();
+  drawBlock(ctx, fitText(ctx,album.toUpperCase(),pick(CAPS),mw,2,S*0.042,S*0.024,0.15),
+    [S*0.18,S*0.52,S*0.82,S*0.66], {align:"center",valign:"center",fill:"rgb(235,235,235)"});
+}
+
+function layout_rail(ctx,band,album,pal,S){
+  gradH(ctx,S,0,S*0.62,0.80,0);
+  const mw=S*0.5, x0=S*0.06;
+  drawBlock(ctx, fitText(ctx,band.toUpperCase(),pick(CAPS),mw,3,S*0.09,S*0.04,0.02),
+    [x0,S*0.48,x0+mw,S*0.78], {align:"left",valign:"bottom",shadow:SH});
+  drawBlock(ctx, fitText(ctx,album.toUpperCase(),pick(DISPLAY),mw,2,S*0.04,S*0.024,0.06),
+    [x0,S*0.80,x0+mw,S*0.94], {align:"left",valign:"top",fill:rgb(bestAccent(pal)),shadow:SH});
+}
+
+function layout_marquee(ctx,band,album,pal,S){
+  const acc=bestAccent(pal);
+  overlay(ctx,S,"0,0,0",0.37);
+  const mw=S*0.86;
+  drawBlock(ctx, fitText(ctx,band.toUpperCase(),pick(CAPS),mw,3,S*0.16,S*0.05,0.02),
+    [S*0.07,S*0.18,S*0.93,S*0.62], {align:"center",valign:"center",shadow:SH,strokeW:Math.max(1,S/600),strokeColor:SH});
+  drawBlock(ctx, fitText(ctx,album.toUpperCase(),pick(CAPS),mw,2,S*0.05,S*0.028,0.12),
+    [S*0.07,S*0.70,S*0.93,S*0.90], {align:"center",valign:"top",fill:rgb(acc),shadow:SH});
+}
+
+function layout_stack(ctx,band,album,pal,S){
+  const acc=bestAccent(pal);
+  gradV(ctx,S,0,S*0.52,0.65,0);
+  const mw=S*0.82, x0=S*0.07;
+  const yb = drawBlock(ctx, fitText(ctx,band.toUpperCase(),pick(CAPS),mw,2,S*0.10,S*0.045,0),
+    [x0,S*0.06,x0+mw,S*0.40], {align:"left",valign:"top",shadow:SH});
+  ctx.fillStyle=rgb(acc); ctx.fillRect(x0,yb+S*0.012,S*0.26,S*0.016);
+  drawBlock(ctx, fitText(ctx,album.toUpperCase(),pick(DISPLAY),mw,2,S*0.045,S*0.026,0.05),
+    [x0,yb+S*0.05,x0+mw,yb+S*0.22], {align:"left",valign:"top",shadow:SH});
+}
+
+function layout_sticker(ctx,band,album,pal,S){
+  const acc=bestAccent(pal), tc=contrastColor(acc);
+  const by0=S*0.56, by1=S*0.74;
+  gradV(ctx,S,0,S*0.30,0.49,0);
+  ctx.fillStyle=rgba(acc,0.92); ctx.fillRect(0,by0,S,by1-by0);
+  const mw=S*0.9;
+  drawBlock(ctx, fitText(ctx,band.toUpperCase(),pick(CAPS),mw,1,S*0.10,S*0.04,0.05),
+    [S*0.05,by0,S*0.95,by1], {align:"center",valign:"center",fill:rgb(tc)});
+  drawBlock(ctx, fitText(ctx,album.toUpperCase(),pick(DISPLAY),mw,2,S*0.05,S*0.028,0.08),
+    [S*0.05,S*0.05,S*0.95,S*0.26], {align:"center",valign:"top",shadow:SH});
+}
+
+function layout_elegant(ctx,band,album,pal,S){
+  gradV(ctx,S,S*0.5,S,0,0.78);
+  const mw=S*0.82;
+  drawBlock(ctx, fitText(ctx,band,pick(SERIF),mw,2,S*0.08,S*0.04,0.03),
+    [S*0.09,S*0.58,S*0.91,S*0.78], {align:"center",valign:"top",shadow:SH});
+  ctx.strokeStyle="rgba(255,255,255,0.82)"; ctx.lineWidth=Math.max(1,S/500);
+  ctx.beginPath(); ctx.moveTo(S*0.22,S*0.82); ctx.lineTo(S*0.78,S*0.82); ctx.stroke();
+  drawBlock(ctx, fitText(ctx,album.toUpperCase(),pick(DISPLAY),mw,1,S*0.035,S*0.022,0.22),
+    [S*0.09,S*0.845,S*0.91,S*0.925], {align:"center",valign:"top",fill:"rgb(232,232,232)"});
+}
+
+function layout_script(ctx,band,album,pal,S){
+  gradV(ctx,S,S*0.45,S,0,0.76);
+  const mw=S*0.85;
+  drawBlock(ctx, fitText(ctx,band,pick(SCRIPT),mw,2,S*0.13,S*0.05,0),
+    [S*0.075,S*0.55,S*0.925,S*0.78], {align:"center",valign:"center",shadow:SH});
+  drawBlock(ctx, fitText(ctx,album.toUpperCase(),pick(CAPS),mw,2,S*0.04,S*0.024,0.12),
+    [S*0.075,S*0.80,S*0.925,S*0.95], {align:"center",valign:"top",fill:rgb(bestAccent(pal)),shadow:SH});
+}
+
+const LAYOUTS = {
+  classic:layout_classic, plate:layout_plate, rail:layout_rail, marquee:layout_marquee,
+  stack:layout_stack, sticker:layout_sticker, elegant:layout_elegant, script:layout_script
+};
+const LAYOUT_NAMES = {
+  classic:"Classic", plate:"Center plate", rail:"Left rail", marquee:"Marquee",
+  stack:"Top stack", sticker:"Sticker bar", elegant:"Elegant serif", script:"Script"
+};
+
+/* ----------------------------------------------------------------------
+   Render + app wiring
+---------------------------------------------------------------------- */
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const $ = id => document.getElementById(id);
+
+let current = null; // {band, album, quote, img, attribution}
+
+function render(layoutKey){
+  if (!current) return;
+  const S = cv.width;
+  const {img, band, album} = current;
+
+  // square center-crop -> fill
+  const w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
+  const side=Math.min(w,h), sx=(w-side)/2, sy=(h-side)/2;
+  ctx.clearRect(0,0,S,S);
+  ctx.drawImage(img, sx,sy,side,side, 0,0,S,S);
+
+  const pal = extractPalette(img);
+  const key = LAYOUTS[layoutKey] ? layoutKey : pick(Object.keys(LAYOUTS));
+  LAYOUTS[key](ctx, band||"Unknown Band", album||"Untitled", pal, S);
+
+  $("iBand").textContent  = band;
+  $("iAlbum").textContent = album;
+  $("iLayout").textContent = LAYOUT_NAMES[key];
+  const a = current.attribution;
+  let credit = `Photo: <b>${escapeHtml(a.title)}</b>`;
+  if (a.creator) credit += ` by ${escapeHtml(a.creator)}`;
+  if (a.license) credit += ` (${escapeHtml(a.license)})`;
+  credit += ` — <a href="${a.link}" target="_blank" rel="noopener">${a.source}</a>`;
+  if (current.quote) credit += `<br>Quote: “${escapeHtml(truncate(current.quote,140))}”`;
+  $("iCredit").innerHTML = credit;
+  $("info").style.display = "block";
+
+  return key;
+}
+
+function escapeHtml(s){ return (s||"").replace(/[&<>"']/g, c => (
+  {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function truncate(s,n){ return s.length>n ? s.slice(0,n-1)+"…" : s; }
+
+function setStatus(msg, isErr=false, busy=false){
+  $("status").className = "status" + (isErr?" err":"");
+  $("status").innerHTML = (busy ? '<span class="spin"></span>' : "") + (msg||"");
+}
+
+async function generate(){
+  const btns = [$("gen"),$("redraw"),$("dl")];
+  btns.forEach(b=>b.disabled=true);
+  $("dl").disabled = true;
+  try{
+    setStatus("Summoning a band, a quote, and a photo…", false, true);
+    let n = parseInt($("words").value,10); if(isNaN(n)) n=4;
+    n = Math.max(3, Math.min(7, n));
+
+    const [band, alb, photo] = await Promise.all([
+      fetchBandName(),
+      fetchAlbumTitle(n),
+      fetchPhoto($("source").value)
+    ]);
+
+    current = { band, album: alb.title, quote: alb.quote,
+                img: photo.img, attribution: photo.attribution };
+    render($("layout").value);
+    setStatus(`Photo via ${photo.attribution.source}. Reroll layout or generate again.`);
+    $("dl").disabled = false;
+  }catch(e){
+    console.error(e);
+    setStatus("Something went wrong: " + e.message + ". Try again (or switch image source).", true);
+  }finally{
+    $("gen").disabled = false; $("redraw").disabled = !current; $("dl").disabled = !current;
+  }
+}
+
+$("gen").addEventListener("click", generate);
+$("redraw").addEventListener("click", ()=>{ if(current){ render($("layout").value); } });
+$("layout").addEventListener("change", ()=>{ if(current){ render($("layout").value); } });
+$("dl").addEventListener("click", ()=>{
+  cv.toBlob(b=>{
+    if(!b){ setStatus("Export failed (image may be CORS-tainted). Try Picsum source.", true); return; }
+    const url = URL.createObjectURL(b);
+    const a = document.createElement("a");
+    const name = (current?.band||"album").replace(/[^a-z0-9]+/gi,"_").slice(0,40).toLowerCase();
+    a.href=url; a.download = `${name||"album"}_cover.jpg`;
+    a.click(); URL.revokeObjectURL(url);
+  }, "image/jpeg", 0.94);
+});
+
+/* boot */
+(async function init(){
+  setStatus("Loading fonts…", false, true);
+  await loadFonts();
+  setStatus("Ready. Hit “Generate new”.");
+  generate();  // auto-run once
+})();
+</script>
+</body>
+</html>
