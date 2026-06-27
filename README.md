@@ -1,4 +1,4 @@
-This is a joke project. Try here - 
+This is a joke project. Try here - https://dobrosketchkun.github.io/accidental_album_cover/
 
 One day I stumbled upon an old meme 
 
